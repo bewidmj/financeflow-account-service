@@ -136,7 +136,7 @@ Foreign keys target only tables owned by this service. Financial amounts use `NU
 
 ## Frontend integration
 
-The existing FinanceFlow UI includes account overview, account creation/editing, detail and ledger history, soft-close confirmation, transfer form/history, and an authenticated `/accounts` API client. Local Vite development proxies `/accounts` to `http://localhost:8082`; override `VITE_ACCOUNT_API_URL` if needed.
+The existing FinanceFlow UI includes account overview, account creation/editing, detail and ledger history, soft-close confirmation, transfer form/history, and an authenticated account API client. Local Vite development proxies `/account-api` to `http://localhost:8082`, separate from the UI's `/accounts` route; override `VITE_ACCOUNT_API_URL` if needed.
 
 ## Current boundaries and follow-up
 
