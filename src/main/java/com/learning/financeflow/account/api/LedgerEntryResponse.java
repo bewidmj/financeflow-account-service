@@ -13,7 +13,10 @@ public record LedgerEntryResponse(
         LedgerEntryType entryType,
         BigDecimal amount,
         String description,
-        Instant createdAt) {
+        Instant createdAt,
+        Long sourceTransactionId,
+        Long sourceTransactionVersion,
+        UUID sourceEventId) {
 
     public static LedgerEntryResponse from(AccountLedgerEntry entry) {
         return new LedgerEntryResponse(
@@ -23,6 +26,9 @@ public record LedgerEntryResponse(
                 entry.getEntryType(),
                 entry.getAmount(),
                 entry.getDescription(),
-                entry.getCreatedAt());
+                entry.getCreatedAt(),
+                entry.getSourceTransactionId(),
+                entry.getSourceTransactionVersion(),
+                entry.getSourceEventId());
     }
 }

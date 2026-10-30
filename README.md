@@ -11,7 +11,7 @@ Independent account and transfer microservice for FinanceFlow. It owns its Postg
 - Balances are stored as `NUMERIC(19,2)` and updated in the same transaction as append-only ledger rows.
 - Transfers lock both account rows in UUID order, validate both owners/statuses and currency, then write the transfer and debit/credit ledger entries atomically.
 - A database uniqueness constraint scopes idempotency keys to a user. Retrying the same key and payload returns the original transfer; reusing it for different accounts or amount returns `409 Conflict`.
-- Kafka and an outbox are intentionally not included. They are appropriate when account events are introduced.
+- Finance transaction updates are consumed asynchronously from Kafka. Finance Service owns the transactional outbox; this service owns its consumer inbox and transaction projection.
 
 ## Run locally
 
@@ -120,7 +120,7 @@ curl -X POST http://localhost:8082/api/v1/transfers \
   }'
 ```
 
-Amounts are positive decimal values with at most two fractional digits. Currency conversion is not supported. An account-history entry's `referenceId` identifies the associated account (opening balance) or transfer.
+Amounts are positive decimal values with at most two fractional digits. Currency conversion is not supported. An account-history entry's `referenceId` identifies the associated account (opening balance), transfer, or source Finance event; Finance transaction rows additionally expose their source transaction ID and version.
 
 ## Database schema
 
@@ -128,7 +128,9 @@ Flyway migration `V1__create_account_schema.sql` creates:
 
 - `accounts`: UUID account, owner UUID, name, type, currency, opening/current balances, status, timestamps, optimistic version. Indexed by owner/status/time.
 - `account_transfers`: UUID transfer, owner UUID, source/destination accounts, amount, currency, status, idempotency key, description, timestamp. Enforces distinct accounts and unique `(user_id, idempotency_key)`.
-- `account_ledger_entries`: UUID immutable debit/credit rows, account UUID, reference UUID, amount, description, timestamp. The PostgreSQL migration also installs a trigger preventing update/delete.
+- `account_ledger_entries`: UUID immutable debit/credit rows, account UUID, reference UUID, amount, description, timestamp, and optional source transaction/event metadata. The PostgreSQL migration also installs a trigger preventing update/delete.
+- `account_transaction_inbox`: unique event ID and processed transaction version.
+- `account_transaction_state`: latest event version and before-state projection used to verify ordering and reverse changes.
 
 Foreign keys target only tables owned by this service. Financial amounts use `NUMERIC(19,2)`; floating-point database types are not used.
 
@@ -138,7 +140,16 @@ The existing FinanceFlow UI includes account overview, account creation/editing,
 
 ## Current boundaries and follow-up
 
-- The existing Finance Service's `FinancialTransaction` entries are standalone income/expense records and are not imported into this account ledger. Account history currently includes opening-balance and account-transfer ledger entries only.
-- Finance Service does not directly access this database. Future integration should publish account events through a transactional outbox and a broker, rather than sharing database tables.
+- Existing Finance transactions remain unlinked until an explicit update assigns an account; no historical balance backfill is performed.
+- Finance Service does not directly access this database. Kafka carries event DTOs, and no database tables are shared.
 - This initial API does not expose admin cross-user account operations. Admins are authenticated using the existing `role` convention, while account operations remain scoped to the token subject.
 - Transfers are synchronous and recorded as `COMPLETED`; failed attempts roll back and are not persisted as transfer rows.
+# Finance transaction events
+
+Account Service consumes the versioned `financeflow.transactions.v1` topic using transaction ID as the Kafka key. It validates `eventVersion`, transaction version, snapshots, account ownership, active status, and INR currency before applying a change. The `account_transaction_inbox` and `account_transaction_state` records are committed atomically with immutable ledger entries and balance updates.
+
+`TransactionCreated` applies the after snapshot, `TransactionUpdated` reverses the prior snapshot and applies the new one, and `TransactionDeleted` appends a reversal without removing historical entries. Duplicate event IDs are no-ops. Version gaps are retried and dead-lettered if they persist. Non-retryable ownership, account-status, currency, and payload failures are sent to `financeflow.transactions.v1.dlt`.
+
+The `V2__transaction_event_inbox_and_ledger_sources.sql` migration adds transaction source metadata to ledger rows and creates the inbox/projection tables. Flyway applies it at service startup. Account Service does not connect to the Finance database.
+
+Set `KAFKA_BOOTSTRAP_SERVERS` (default `localhost:9092`) and keep it consistent with Finance Service. For a local broker and Finance-side operational guidance, see the FinanceFlow README.

@@ -36,6 +36,18 @@ public class AccountLedgerEntry {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "source_transaction_id")
+    private Long sourceTransactionId;
+
+    @Column(name = "source_transaction_version")
+    private Long sourceTransactionVersion;
+
+    @Column(name = "source_event_id")
+    private UUID sourceEventId;
+
+    @Column(name = "entry_sequence")
+    private Integer entrySequence;
+
     protected AccountLedgerEntry() {
     }
 
@@ -47,6 +59,22 @@ public class AccountLedgerEntry {
             BigDecimal amount,
             String description,
             Instant createdAt) {
+        this(id, accountId, referenceId, entryType, amount, description, createdAt,
+                null, null, null, null);
+    }
+
+    public AccountLedgerEntry(
+            UUID id,
+            UUID accountId,
+            UUID referenceId,
+            LedgerEntryType entryType,
+            BigDecimal amount,
+            String description,
+            Instant createdAt,
+            Long sourceTransactionId,
+            Long sourceTransactionVersion,
+            UUID sourceEventId,
+            Integer entrySequence) {
         this.id = id;
         this.accountId = accountId;
         this.referenceId = referenceId;
@@ -54,6 +82,10 @@ public class AccountLedgerEntry {
         this.amount = amount;
         this.description = description;
         this.createdAt = createdAt;
+        this.sourceTransactionId = sourceTransactionId;
+        this.sourceTransactionVersion = sourceTransactionVersion;
+        this.sourceEventId = sourceEventId;
+        this.entrySequence = entrySequence;
     }
 
     public UUID getId() {
@@ -82,5 +114,21 @@ public class AccountLedgerEntry {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Long getSourceTransactionId() {
+        return sourceTransactionId;
+    }
+
+    public Long getSourceTransactionVersion() {
+        return sourceTransactionVersion;
+    }
+
+    public UUID getSourceEventId() {
+        return sourceEventId;
+    }
+
+    public Integer getEntrySequence() {
+        return entrySequence;
     }
 }

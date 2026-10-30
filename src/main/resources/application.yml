@@ -20,16 +20,33 @@ spring:
     enabled: true
   jackson:
     default-property-inclusion: non_null
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:financeflow-account-service}
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
 
 app:
   security:
     jwks-uri: ${JWT_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+  kafka:
+    transaction-topic: ${KAFKA_TRANSACTION_TOPIC:financeflow.transactions.v1}
+    transaction-dlt-topic: ${KAFKA_TRANSACTION_DLT_TOPIC:financeflow.transactions.v1.dlt}
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics
   endpoint:
     health:
       probes:
