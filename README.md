@@ -12,6 +12,7 @@ Independent account and transfer microservice for FinanceFlow. It owns its Postg
 - Transfers lock both account rows in UUID order, validate both owners/statuses and currency, then write the transfer and debit/credit ledger entries atomically.
 - A database uniqueness constraint scopes idempotency keys to a user. Retrying the same key and payload returns the original transfer; reusing it for different accounts or amount returns `409 Conflict`.
 - Finance transaction updates are consumed asynchronously from Kafka. Finance Service owns the transactional outbox; this service owns its consumer inbox and transaction projection.
+- Credit-card repayments are consumed as internal Kafka commands. This service owns the source-account debit, payment operation and result outbox in one database transaction.
 
 ## Run locally
 
@@ -24,6 +25,9 @@ export DATABASE_URL='jdbc:postgresql://localhost:5432/financeflow_accounts'
 export DATABASE_USERNAME='your-local-db-user'
 export DATABASE_PASSWORD='your-local-db-password'
 export JWT_JWKS_URI='http://localhost:8081/.well-known/jwks.json'
+export KAFKA_CARD_PAYMENT_COMMAND_TOPIC='financeflow.credit-card-payments.v1'
+export KAFKA_CARD_PAYMENT_COMMAND_DLT_TOPIC='financeflow.credit-card-payments.v1.dlt'
+export KAFKA_CARD_PAYMENT_RESULT_TOPIC='financeflow.credit-card-payments.result.v1'
 ```
 
 The JWKS URI above matches the Identity Service's public `/.well-known/jwks.json` endpoint. The default application value is the same local endpoint. Production should set `JWT_JWKS_URI` to the reachable HTTPS endpoint for the deployed Identity Service.
@@ -124,26 +128,33 @@ Amounts are positive decimal values with at most two fractional digits. Currency
 
 ## Database schema
 
-Flyway migration `V1__create_account_schema.sql` creates:
+Flyway migrations create:
 
 - `accounts`: UUID account, owner UUID, name, type, currency, opening/current balances, status, timestamps, optimistic version. Indexed by owner/status/time.
 - `account_transfers`: UUID transfer, owner UUID, source/destination accounts, amount, currency, status, idempotency key, description, timestamp. Enforces distinct accounts and unique `(user_id, idempotency_key)`.
 - `account_ledger_entries`: UUID immutable debit/credit rows, account UUID, reference UUID, amount, description, timestamp, and optional source transaction/event metadata. The PostgreSQL migration also installs a trigger preventing update/delete.
-- `account_transaction_inbox`: unique event ID and processed transaction version.
-- `account_transaction_state`: latest event version and before-state projection used to verify ordering and reverse changes.
+- `V2__transaction_event_inbox_and_ledger_sources.sql` adds the transaction source metadata, `account_transaction_inbox` (unique event ID and version), and `account_transaction_state` (latest snapshot used to reverse changes).
+- `V3__credit_card_payment_saga.sql` creates `account_credit_card_payments` and its result outbox. The operation and source-account debit ledger row commit atomically; the outbox publishes an idempotent completion or rejection result.
 
 Foreign keys target only tables owned by this service. Financial amounts use `NUMERIC(19,2)`; floating-point database types are not used.
 
 ## Frontend integration
 
-The existing FinanceFlow UI includes account overview, account creation/editing, detail and ledger history, soft-close confirmation, transfer form/history, and an authenticated account API client. Local Vite development proxies `/account-api` to `http://localhost:8082`, separate from the UI's `/accounts` route; override `VITE_ACCOUNT_API_URL` if needed.
+The FinanceFlow UI includes account overview, account creation/editing, detail and ledger history, soft-close confirmation, transfer form/history, credit card and repayment pages, and authenticated API clients. Local Vite development proxies `/account-api` to `http://localhost:8082`, separate from the UI's `/accounts` route; override `VITE_ACCOUNT_API_URL` if needed.
 
 ## Current boundaries and follow-up
 
-- Existing Finance transactions remain unlinked until an explicit update assigns an account; no historical balance backfill is performed.
+- Existing Finance transactions remain unlinked until an explicit update assigns an account or credit card; no historical balance backfill is performed.
 - Finance Service does not directly access this database. Kafka carries event DTOs, and no database tables are shared.
 - This initial API does not expose admin cross-user account operations. Admins are authenticated using the existing `role` convention, while account operations remain scoped to the token subject.
 - Transfers are synchronous and recorded as `COMPLETED`; failed attempts roll back and are not persisted as transfer rows.
+- Credit-card payment commands are internal Kafka messages, not a public Account Service API. The command carries the payment idempotency key and authenticated owner UUID from the Credit Card Service; this service revalidates the source account owner before debiting.
+
+The payment command, dead-letter, and result topics default to
+`financeflow.credit-card-payments.v1`,
+`financeflow.credit-card-payments.v1.dlt`, and
+`financeflow.credit-card-payments.result.v1`. The Credit Card Service and
+Account Service must use the same command and result topic environment values.
 # Finance transaction events
 
 Account Service consumes the versioned `financeflow.transactions.v1` topic using transaction ID as the Kafka key. It validates `eventVersion`, transaction version, snapshots, account ownership, active status, and INR currency before applying a change. The `account_transaction_inbox` and `account_transaction_state` records are committed atomically with immutable ledger entries and balance updates.

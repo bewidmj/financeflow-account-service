@@ -41,6 +41,11 @@ app:
   kafka:
     transaction-topic: ${KAFKA_TRANSACTION_TOPIC:financeflow.transactions.v1}
     transaction-dlt-topic: ${KAFKA_TRANSACTION_DLT_TOPIC:financeflow.transactions.v1.dlt}
+    credit-card-payment-command-topic: ${KAFKA_CARD_PAYMENT_COMMAND_TOPIC:financeflow.credit-card-payments.v1}
+    credit-card-payment-command-dlt-topic: ${KAFKA_CARD_PAYMENT_COMMAND_DLT_TOPIC:financeflow.credit-card-payments.v1.dlt}
+    credit-card-payment-result-topic: ${KAFKA_CARD_PAYMENT_RESULT_TOPIC:financeflow.credit-card-payments.result.v1}
+  credit-card-payments:
+    outbox-poll-interval: ${CARD_PAYMENT_OUTBOX_POLL_INTERVAL:1000}
 
 management:
   endpoints:
